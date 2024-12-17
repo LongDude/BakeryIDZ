@@ -1,0 +1,16 @@
+version: '3'
+services:
+  proxy:
+    image: jwilder/nginx-proxy
+    ports:
+      - "80:80"
+      - "80:8080"
+      - "5432:5433"
+    volumes:
+      - /var/run/docker.sock:/tml/docker.so:ro
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    driver: bridge

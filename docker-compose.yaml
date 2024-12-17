@@ -1,0 +1,60 @@
+version: "3"
+services:
+  nginx:
+    image: nginx
+    restart: always
+    environment:
+      - VIRTUAL_HOST=site.local
+    depends_on:
+      - back-server
+      - db
+    networks:
+      - backend
+      - frontend
+
+  back-server:
+    build:
+      context: ./back-end
+    networks:
+      - backend
+
+  adminer:
+    image: adminer
+    depends_on:
+      - db
+      - nginx
+    restart: always
+    networks:
+      - backend
+      - frontend
+
+  db:
+    image: postgres:16-alpine
+    environment: 
+      POSTGRES_USER: /run/secrets/db_user
+      POSTGRES_PASSWORD: /run/secrets/db_password
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - /var/lib/postgresql/data:/var/lib/postgresql/data
+    expose:
+      - '5432'
+    restart: always
+    user: 961:961
+    networks:
+      - backend
+    secrets: 
+      - db_user
+      - db_password
+
+
+networks:
+  frontend:
+    name: proxy_proxy
+    external: true
+  backend:
+
+secrets:
+  db_password:
+    file: secrets/db-password.txt
+  db_user:
+    file: secrets/db-user.txt
