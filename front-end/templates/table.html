@@ -1,0 +1,18 @@
+<table class="table">
+    <thead>
+        <tr>
+            {% for name in data[0].keys() %}
+            <th scope="col">{{ name }}</th>
+            {% endfor %}    
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in data %}
+        <tr>
+            {% for name in row.keys() %}
+            <td>{{ row[name] }}</td>
+            {% endfor %}
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>

@@ -1,28 +1,39 @@
 version: "3"
 services:
-  nginx:
-    image: nginx
-    restart: always
-    environment:
-      - VIRTUAL_HOST=site.local
-    depends_on:
-      - back-server
-      - db
-    networks:
-      - backend
-      - frontend
+  # nginx:
+  #   image: nginx
+  #   restart: always
+  #   environment:
+  #     - VIRTUAL_HOST=site.local
+  #   depends_on:
+  #     - back-server
+  #     - db
+  #   networks:
+  #     - backend
+  #     - frontend
 
   back-server:
     build:
       context: ./back-end
+    volumes:
+      - ./front-end:/front-end
+    environment:
+      DB_USER: /run/secrets/db_user
+      DB_PASS: /run/secrets/db_password
+    depends_on:
+      - db
     networks:
       - backend
+      - frontend
+    secrets:
+      - db_user
+      - db_password
 
   adminer:
     image: adminer
     depends_on:
       - db
-      - nginx
+      - back-server # Чтобы порядок IP не менялся
     restart: always
     networks:
       - backend
@@ -42,6 +53,7 @@ services:
     user: 961:961
     networks:
       - backend
+      - frontend
     secrets: 
       - db_user
       - db_password
