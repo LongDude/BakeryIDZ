@@ -1,11 +1,16 @@
 const table_placeholder = document.getElementById('table_placeholder')
 
-function request_table(table_name){
+function request_table(table_name, page=1){
     while (table_placeholder.hasChildNodes()){
         table_placeholder.removeChild(table_placeholder.firstChild)
     }
 
-    fetch(`${table_name}`)
+    const params = new URLSearchParams({
+        'page': page
+    })
+
+
+    fetch(`${table_name}?${params}`)
     .then(response => response.text())
     .catch(error => {
         console.error('Failed to fetch page: ', error)
@@ -20,10 +25,17 @@ function request_table(table_name){
         console.error('Failed parsing page: ', error)
     })
     .then(doc => {
-        console.log(doc); 
-        const table = doc.getElementsByClassName('table')[0]
-        console.log(table)
+        const panel = doc.getElementById('table-control')        
+        const table = doc.getElementById('data-table')
         table_placeholder.appendChild(table)
+
+        const page_buttons = panel.getElementsByClassName("paginate-button") 
+        for (var i = 0; i < page_buttons.length; i++){
+            const val = page_buttons[i].getAttribute('value')
+            page_buttons[i].addEventListener('click', () => request_table(table_name, val))
+        }
+        table_placeholder.appendChild(panel)
+
     })
     .catch(error => {
         console.error('Failed appending page: ', error)
