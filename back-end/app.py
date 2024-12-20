@@ -7,6 +7,9 @@ import signal, sys
 import os
 import psycopg2.pool
 from json import dumps
+from io import StringIO
+import csv
+import pdfkit 
 
 app = Flask(__name__, template_folder='../front-end/templates', static_folder='../front-end/static')
 app.config['SECRET_KEY'] = 'DEBUG_ONLY_KEY'
@@ -38,18 +41,41 @@ def query_db(query, args=(), one=False):
         pool.putconn(conn)
     return (r[0] if r else None) if one else r
 
+
 # -----------------------
 # Дъявольские технологии™
 # Надо было делать ORM
 # -----------------------
+def generate_csv(query, query_mask, args):
+    data_query = apply_args(query, query_mask, args, False)
+    try:
+        conn = pool.getconn()
+        cur = conn.cursor()
+        file = StringIO()
+
+        app.logger.debug(data_query)
+        cur.copy_expert("COPY ({0}) TO STDOUT WITH CSV HEADER".format(data_query), file)
+        file.seek(0)
+        data = file.read()
+        app.logger.debug(data)
+    except Exception as e:
+        app.logger.debug(data_query)
+        app.logger.debug(e)
+    finally:
+        file.close()
+        pool.putconn(conn)
+    return data
+
+
 def append_filter(query: str, q_mask, q_filter = ()):
     if q_filter is None or len(q_filter) < 2:
         return query
+    app.logger.debug(q_filter)
     p = 0
-
     query += " WHERE "
     while p < len(q_filter):
         # Получаем код поля
+        fkey = ''
         try:
             fkey = q_mask[q_filter[p]]
         except KeyError:
@@ -82,15 +108,21 @@ def append_sort(query: str, sortby = ()):
 def append_pagination(query: str, page=1, limit=RECORDS_PER_PAGE):
     return query + f" LIMIT {limit} offset {(page - 1) * limit}"
 
-def complex_table_request(query, query_codes, args,  req_count=False):
+def complex_table_request(query, query_codes, args, req_count=False, paginate=True):
+    query = apply_args(query, query_codes, args, (not req_count) and paginate)
+
+    if req_count:
+        return query_db(f"SELECT COUNT(*) FROM ({query})")
+    
+    return query_db(query)
+
+def apply_args(query, query_codes, args, paginate=True):
     # Filtration
     arg_filter = args.get('filterBy', type=str, default=None)
     if arg_filter is not None:
         arg_filter = list(arg_filter.split(','))
     query = append_filter(query, query_codes, arg_filter)
 
-    if req_count:
-        return query_db(f"SELECT COUNT(*) FROM ({query})")
 
     # Ordering
     arg_order = args.get('orderBy', type=str, default=None)
@@ -98,13 +130,13 @@ def complex_table_request(query, query_codes, args,  req_count=False):
         arg_order = list(arg_order.split(','))
     query = append_sort(query, arg_order)
 
-
     # Pagination
-    arg_page = args.get('page', type=int, default=1)
-    arg_pagelimit = args.get('limit', type=int, default=RECORDS_PER_PAGE)
-    query = append_pagination(query, arg_page, arg_pagelimit)
+    if paginate:
+        arg_page = args.get('page', type=int, default=1)
+        arg_pagelimit = args.get('limit', type=int, default=RECORDS_PER_PAGE)
+        query = append_pagination(query, arg_page, arg_pagelimit)
+    return query
 
-    return query_db(query)
 
 # ------ 
 # ROUTES
@@ -138,15 +170,15 @@ SQL_SELLINGS_TABLE = """
             JOIN product p on p.product_id = g.product_id
             JOIN affiliate a on a.affiliate_id = g.affiliate_id
         """
-# Маска для конверсии имени столбца (приходит с фронта, name) в истинное имя (code name)
+# Маска для конверсии имени столбца (приходит с формы) в истинное имя (code name)
 SQL_SELLING_MASKS = {
-    "Имя продукта"            : "p.product_name ",
-    "Адрес магазина"          : "a.affiliate_address", 
-    "Товара реализовано"      : "g.goods_realised_quantity",
-    "Стоимость реализ. товара": "g.goods_realised_price", 
-    "Товара получено"         : "g.goods_recieved_quantity", 
-    "Стоимость получ. товара" : "g.goods_recieved_cost", 
-    "Дата"                    : "g.goods_date" 
+    "product_id"          : "p.product_id ",
+    "affiliate_id"        : "a.affiliate_id", 
+    "goods_realised"      : "g.goods_realised_quantity",
+    "goods_realised_price": "g.goods_realised_price", 
+    "goods_recieved"      : "g.goods_recieved_quantity", 
+    "goods_recieved_cost" : "g.goods_recieved_cost", 
+    "date"                : "g.goods_date" 
 }
 
 class SellForm(FlaskForm):
@@ -179,9 +211,10 @@ def list_sellings():
             "affiliate_id": affiliate_id, 
             "date": date_id
         })
-
+    arg_pagelimit = args.get('limit', type=int, default=RECORDS_PER_PAGE)
+    app.logger.debug('QUERIED DATA')
     # tableData идёт в шаблон как элементы таблицы, idData размещается в атрибуте каждой строки
-    return render_template('table.html', data=tableData, idData=idData, pages=(count_sellings()[0]['count'] + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE)
+    return render_template('table.html', data=tableData, idData=idData, pages=(count_sellings()[0]['count'] + arg_pagelimit - 1) // arg_pagelimit)
 
 
 @app.route('/sellings/count', methods=['GET'])
@@ -267,6 +300,24 @@ def sellings_delete():
     )        
 
     return jsonify(query_db(query, q_args, True)), 200
+
+@app.route('/sellings/csv', methods=['GET'])
+def sellings_save_csv():
+    data = generate_csv(SQL_SELLINGS_TABLE, SQL_SELLING_MASKS, request.args)
+    return Response(data, mimetype='text/csv', headers={
+        "Content-Disposition":"attachment;filename=report.csv"
+    })
+
+@app.route('/sellings/pdf', methods=['GET'])
+def sellings_save_pdf():
+    data = complex_table_request(SQL_SELLINGS_TABLE, SQL_SELLING_MASKS, request.args, paginate=False)
+    html_template = render_template('pdf.html', data=data)
+
+    pdf = pdfkit.from_string(html_template)
+
+    return Response(pdf, mimetype='text/pdf', headers={
+        "Content-Disposition":"attachment;filename=report.pdf"
+    })
 
 # -- Ассортимент --
 SQL_ASSORTIMENT_TABLE = """

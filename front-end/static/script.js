@@ -144,10 +144,10 @@ function changeSortingMode(colName){
     request_table(currentTable)
 }
 
-async function request_table(table_name=currentTable, page=currentPage){
+function saveFilterMarkers(){
     if (table_placeholder.children.length > 0){
         // Cперва сохраним фильтры
-        var filterMarkers = {}
+        filterMarkers = {}
         const filterRow = document.getElementById('filter_row').children
         console.log(filterRow)
         for(let i = 0; i < filterRow.length - 1; i++){
@@ -158,6 +158,36 @@ async function request_table(table_name=currentTable, page=currentPage){
         }
         console.log(filterMarkers)
     }
+}
+
+function collectTableParams(){
+    // ORDERING
+    let sortOrders = []
+    for (var key in sortingOrderMarkers){
+        let order = sortingOrderMarkers[key][0] 
+        if ( order > 0) {
+            sortOrders.push(key)
+            sortOrders.push(sortingOrderEnum[order])
+        }
+    }
+
+    // Filtering
+    let localFilters = []
+    for (var key in filterMarkers){
+        localFilters.push(key.slice(7))
+        localFilters.push(filterMarkers[key])
+    }
+
+    return new URLSearchParams({
+        'page': currentPage,
+        'limit': currentPageLimit,
+        'orderBy': sortOrders.join(','),
+        'filterBy': localFilters.join(',')
+    })
+}
+
+async function request_table(table_name=currentTable, page=currentPage){
+    saveFilterMarkers()
     
     while (table_placeholder.children.length > 0){
         // Удаляем таблицу если существует
@@ -177,30 +207,7 @@ async function request_table(table_name=currentTable, page=currentPage){
         currentPage = page
     }
 
-    // ORDERING
-    let sortOrders = []
-
-    for (var key in sortingOrderMarkers){
-        let order = sortingOrderMarkers[key][0] 
-        if ( order > 0) {
-            sortOrders.push(key)
-            sortOrders.push(sortingOrderEnum[order])
-        }
-    }
-
-    // Filtering
-    let localFilters = []
-    for (var key in filterMarkers){
-        localFilters.push(key)
-        localFilters.push(filterMarkers[key])
-    }
-
-    const params = new URLSearchParams({
-        'page': page,
-        'limit': currentPageLimit,
-        'orderBy': sortOrders.join(','),
-        'filterBy': localFilters.join(',')
-    })
+    const params = collectTableParams()
 
     await fetch(`${table_name}?${params}`)
     .then(response => response.text())
@@ -312,9 +319,25 @@ async function request_table(table_name=currentTable, page=currentPage){
 
         currentTable = table_name
 
-        const add_row_button = doc.getElementById("add-row")
         document.getElementById('refresh').addEventListener('click', () => request_table(currentTable))
-        add_row_button.addEventListener('click', request_form_modal)
+        doc.getElementById("add-row").addEventListener('click', request_form_modal)
+        doc.getElementById("button-csv").addEventListener('click', async () => {
+            saveFilterMarkers()
+            const params = collectTableParams()
+            
+            const link = document.createElement('a')
+            link.setAttribute('href', `${currentTable}/csv?${params}`)
+            link.click()
+        })
+        doc.getElementById("button-pdf").addEventListener('click', async () => {
+            saveFilterMarkers()
+            const params = collectTableParams()
+
+            const link = document.createElement('a')
+            link.setAttribute('href', `${currentTable}/pdf?${params}`)
+            link.click()
+
+        })
         table_placeholder.appendChild(panel)
 
     })

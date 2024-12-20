@@ -91,6 +91,7 @@ main aside button:active {
 #data-table-container {
     text-wrap: nowrap;
     overflow: scroll;
+    height: 90vh;
 }
 
 #data-table-container::-webkit-scrollbar {
@@ -196,4 +197,31 @@ td {
 }
 #page-limit {
     width: 30px;
+}
+
+#buttons-group {
+    display: flex;
+    flex-direction: row;
+    gap: 15px;
+}
+
+#buttons-group a {
+    appearance: button;
+}
+
+#buttons-group button {
+    padding: 0px 5px 0px 5px;
+    border-radius: 5px;
+    font-size: 1.2rem;
+    background-color: bisque;
+    cursor: pointer;
+
+}
+
+#buttons-group button:hover {
+    background-color: rgb(231, 207, 178);
+}
+
+#buttons-group button:active {
+    background-color: rgb(205, 182, 153);
 }
