@@ -1,7 +1,7 @@
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, jsonify, Response
 from flask_wtf import FlaskForm
 from wtforms import StringField, SubmitField, DateField, IntegerField, DecimalField, SelectField
-from wtforms.validators import NumberRange
+from wtforms.validators import NumberRange, DataRequired
 import psycopg2
 import signal, sys
 import os
@@ -10,6 +10,7 @@ from json import dumps
 
 app = Flask(__name__, template_folder='../front-end/templates', static_folder='../front-end/static')
 app.config['SECRET_KEY'] = 'DEBUG_ONLY_KEY'
+app.config['WTF_CSRF_ENABLED'] = False
 
 # Достаём секреты из файлов
 with open(os.environ['DB_USER'], 'r', encoding='utf-8') as f_u: DB_USER = f_u.read()
@@ -20,17 +21,28 @@ pool = psycopg2.pool.SimpleConnectionPool(1, 3, host='db', dbname="DB_Lab", user
 
 RECORDS_PER_PAGE = 20
 
-def query_db(query, one=False):
+def query_db(query, one=False, args=()):
     conn = pool.getconn()
     cur = conn.cursor()
 
-    cur.execute(query)
+    cur.execute(query, args)
     r = [dict((cur.description[i][0], value) \
         for i, value in enumerate(row)) for row in cur.fetchall()]
     
     pool.putconn(conn)
     return (r[0] if r else None) if one else r
 
+def procedure_db(query, args=(), retrieve=True):
+    conn = pool.getconn()
+    cur = conn.cursor()
+    
+    app.logger.debug(query, args)
+    cur.execute(query, args)
+    if retrieve: r = cur.fetchone()[0]
+    conn.commit()
+    pool.putconn(conn)
+    if retrieve: return r
+    return
 
 # -----------------------
 # Дъявольские технологии™
@@ -60,13 +72,13 @@ def append_filter(query: str, q_mask, q_filter = ()):
                 val1 = q_filter[p + 2]
                 if not val1.isnumeric():
                     val1 = f'\'{val1}\'' 
-                query += f" WHERE {fkey} < {val1}"
+                query += f" WHERE {fkey} <= {val1}"
                 break
             case 'gt':
                 val1 = q_filter[p + 2]
                 if not val1.isnumeric():
                     val1 = f'\'{val1}\'' 
-                query += f" WHERE {fkey} > {val1}"
+                query += f" WHERE {fkey} >= {val1}"
                 break
             case 'bt':
                 val1 = q_filter[p + 2]
@@ -82,7 +94,7 @@ def append_filter(query: str, q_mask, q_filter = ()):
     return query
 
 def append_sort(query: str, sortby = ()):
-    if sortby is None or len(sortby) == 0:
+    if sortby is None or len(sortby) < 2:
         return query
     query += ' ORDER BY '
     p = 0
@@ -143,7 +155,7 @@ def list_products_all(): return query_db("SELECT product_id, product_name FROM p
 # -- Продажи --
 SQL_SELLINGS_TABLE = """
             SELECT p.product_name "Имя продукта", a.affiliate_address "Адрес магазина", g.goods_realised_quantity "Товара реализовано",
-            g.goods_realised_price "Стоимость реализованного товара", g.goods_recieved_quantity "Товара получено", g.goods_recieved_cost "Стоимость полученного товара", 
+            g.goods_realised_price "Стоимость реализ. товара", g.goods_recieved_quantity "Товара получено", g.goods_recieved_cost "Стоимость получ. товара", 
             g.goods_date "Дата"
             FROM goods_movement g
             JOIN product p on p.product_id = g.product_id
@@ -154,23 +166,24 @@ SQL_SELLING_MASKS = {
     "Имя продукта"                  : "p.product_name ",
     "Адрес магазина"                : "a.affiliate_address", 
     "Товара реализовано"            : "g.goods_realised_quantity",
-    "Стоимость реализованного товара" : "g.goods_realised_price", 
+    "Стоимость реализ. товара" : "g.goods_realised_price", 
     "Товара получено"               : "g.goods_recieved_quantity", 
-    "Стоимость полученного товара"  : "g.goods_recieved_cost", 
+    "Стоимость получ. товара"  : "g.goods_recieved_cost", 
     "Дата"                          : "g.goods_date" 
 }
 
 class SellForm(FlaskForm):
-    product_name = SelectField(choices=[
+    product_id = SelectField(choices=[
         (x['product_id'], x['product_name']) for x in list_products_all()])
-    affiliate_address = SelectField(choices=[
-        (x['affiliate_id'], x['affiliate_address']) for x in list_affiliates_all()
-    ])
-    goods_realised = IntegerField(validators=[NumberRange(0)])
-    goods_realised_price = DecimalField(validators=[NumberRange(0)])
-    goods_recieved = IntegerField(validators=[NumberRange(0)])
-    goods_recieved_cost = DecimalField(validators=[NumberRange(0)])
-    date = DateField(format="%Y-%m-%d")
+    affiliate_id = SelectField(choices=[
+        (x['affiliate_id'], x['affiliate_address']) for x in list_affiliates_all()])
+    goods_realised = IntegerField(default=0, validators=[NumberRange(0)])
+    goods_realised_price = DecimalField(default=0, validators=[NumberRange(0)])
+    goods_recieved = IntegerField(default=0,validators=[NumberRange(0)])
+    goods_recieved_cost = DecimalField(default=0,validators=[NumberRange(0)])
+    date = DateField(format="%Y-%m-%d", validators=[DataRequired()])
+    submitForm = SubmitField('Сохранить')
+
 
 @app.route('/sellings', methods=['GET'])
 def list_sellings():
@@ -180,17 +193,95 @@ def list_sellings():
 def count_sellings():
     return complex_table_request(SQL_SELLINGS_TABLE, SQL_SELLING_MASKS, request.args, True)
 
-@app.route('/sellings', methods=['POST'])
-def sellings_create():
-    pass
+@app.route('/sellings/add-form', methods=['GET', 'POST'])
+def sellings_create_form():
+    form = SellForm()
+    if request.method == 'POST':
+        if form.validate():
+            query = """
+                INSERT INTO public.goods_movement
+                (
+                product_id, affiliate_id, 
+                goods_realised_quantity, goods_realised_price, 
+                goods_recieved_quantity, goods_recieved_cost, 
+                goods_date
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING (product_id, affiliate_id, goods_date); 
+            """
+            q_args = (
+                form.product_id.data,
+                form.affiliate_id.data,
+                form.goods_realised.data,
+                form.goods_realised_price.data,
+                form.goods_recieved.data,
+                form.goods_recieved_cost.data,
+                form.date.data
+            )
 
-@app.route('/sellings', methods=['PUT'])
-def sellings_update():
-    pass
+            # new_req_id = procedure_db(query, q_args)
+            # app.logger.debug(new_req_id)
+            # resp_query = SQL_SELLINGS_TABLE + """
+            #     WHERE g.product_id = %s and g.affiliate_id = %s and g.date = %s
+            # """
 
-@app.route('/sellings', methods=['DEL'])
+            # return query_db(resp_query, True, new_req_id) 
+            return jsonify(procedure_db(query, q_args))
+        else:
+            return jsonify(form.errors), 400
+    return render_template('sellings_modal.html', form=form)
+
+@app.route('/sellings/edit-form', methods=['GET', 'PUT'])
+def sellings_update_form():
+    form = SellForm(meta={'csrf': False})
+    if request.method == "PUT":
+        if form.validate():
+            query = """
+            UPDATE public.goods_movement
+	        SET product_id=%s, affiliate_id=%s, goods_realised_quantity=%s, goods_realised_price=%s, goods_recieved_quantity=%s, goods_recieved_cost=%s, goods_date=%s
+	        WHERE product_id=%s and affiliate_id=%s and goods_date=%s
+            RETURNING product_id, affiliate_id, goods_date
+            """
+            
+            q_args = (
+                form.product_id.data,
+                form.affiliate_id.data,
+                form.goods_realised.data,
+                form.goods_realised_price.data,
+                form.goods_recieved.data,
+                form.goods_recieved_cost.data,
+                form.date.data,
+                request.args.get('old_product_id'),
+                request.args.get('old_affiliate_id'),
+                request.args.get('old_date')
+            )
+
+            return jsonify(procedure_db(query, q_args))
+
+            # new_req_id = procedure_db(query, q_args)
+            # resp_query = SQL_SELLINGS_TABLE + \
+            # """
+            #     WHERE g.product_id = %s and g.affiliate_id = %s and g.date = %s
+            # """
+            # return query_db(resp_query, True, new_req_id)
+        else:
+            return jsonify(form.errors), 400
+    return render_template('sellings_func.html', form=form)
+
+@app.route('/sellings/del-form', methods=['DELETE'])
 def sellings_delete():
-    pass
+    query = """
+        DELETE FROM goods_movement g
+        WHERE g.product_id = %s and g.affiliate_id = %s and g.goods_date = %s 
+    """
+    q_args = (
+        request.args.get('product_id'),
+        request.args.get('affiliate_id'),
+        request.args.get('date')
+    )        
+
+    res = procedure_db(query, q_args, False) 
+    return jsonify(res), 200
 
 # -- Ассортимент --
 SQL_ASSORTIMENT_TABLE = """
@@ -210,11 +301,14 @@ SQL_ASSORTIMENT_MASK = {
 }
 @app.route('/assortiment', methods=['GET'])
 def list_assortiment():
-    return render_template('table.html', data=complex_table_request(SQL_ASSORTIMENT_TABLE, SQL_ASSORTIMENT_MASK, request.args), pages=(count_assortiment()[0]['count'] + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE)
+    records_cnt = count_assortiment()[0]['count']
+    pgs_count = (records_cnt + RECORDS_PER_PAGE - 1) // RECORDS_PER_PAGE
+    app.logger.debug(f"Количество записей: {records_cnt}, ({pgs_count}x{RECORDS_PER_PAGE})")
+    return render_template('table.html', data=complex_table_request(SQL_ASSORTIMENT_TABLE, SQL_ASSORTIMENT_MASK, request.args), pages=pgs_count)
 
 @app.route('/assortiment/count', methods=['GET'])
 def count_assortiment():
-    return complex_table_request(SQL_SELLINGS_TABLE, SQL_ASSORTIMENT_MASK, request.args, True)
+    return complex_table_request(SQL_ASSORTIMENT_TABLE, SQL_ASSORTIMENT_MASK, request.args, True)
 
 # -- Заказы --
 SQL_ORDERS_TABLE = """
