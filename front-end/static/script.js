@@ -7,7 +7,6 @@ var currentPage = 1
 const sortingOrderEnum = [null, 'asc', 'desc']
 var sortingOrderMarkers = {};
 
-
 const sortSVGtemplates = [
     document.getElementById('icons').content.childNodes[1],
     document.getElementById('icons').content.childNodes[5],
@@ -48,16 +47,6 @@ addRowModalWindow.addEventListener('submit', async (e) => {
                     'Content-Type': 'application/json'
                 },
                 body: fetchDocumentInput()
-                // body: JSON.stringify({
-                //     csrf_token: fields.csrf_token.value,
-                //     product_id: fields.product_id.value,
-                //     affiliate_id: fields.affiliate_id.value,
-                //     goods_realised: fields.goods_realised.value,
-                //     goods_realised_price: fields.goods_realised_price.value,
-                //     goods_recieved: fields.goods_recieved.value,
-                //     goods_recieved_cost: fields.goods_recieved_cost.value,
-                //     date: fields.date.value,
-                // })
             })
             break
         }
@@ -88,18 +77,36 @@ addRowModalWindow.addEventListener('submit', async (e) => {
     }
 })
 
-function fetchDocumentInput(){
+
+function fetchDocumentInput(suffix=''){
+    // Суффикс позволяет использовать метод для product_id, edit_product_id и т.д.
+    // Суффикс используется в основном из-за фильтров 
     switch (currentTable){
         case 'sellings': {
             return JSON.stringify({
                 // csrf_token:             document.getElementById('csrf_token').value,
-                product_id:             document.getElementById('product_id').value,
-                affiliate_id:           document.getElementById('affiliate_id').value,
-                goods_realised:         document.getElementById('goods_realised').value,
-                goods_realised_price:   document.getElementById('goods_realised_price').value,
-                goods_recieved:         document.getElementById('goods_recieved').value,
-                goods_recieved_cost:    document.getElementById('goods_recieved_cost').value,
-                date:                   document.getElementById('date').value,
+                product_id:             document.getElementById(`${suffix}product_id`).value,
+                affiliate_id:           document.getElementById(`${suffix}affiliate_id`).value,
+                goods_realised:         document.getElementById(`${suffix}goods_realised`).value,
+                goods_realised_price:   document.getElementById(`${suffix}goods_realised_price`).value,
+                goods_recieved:         document.getElementById(`${suffix}goods_recieved`).value,
+                goods_recieved_cost:    document.getElementById(`${suffix}goods_recieved_cost`).value,
+                date:                   document.getElementById(`${suffix}date`).value,
+            })
+        }
+    }
+}
+
+
+function fetchRowID(row){
+    //  Получаем ключи PK записи для указанной строки с учётом контекста таблицы
+
+    switch (currentTable) {
+        case 'sellings': {
+            return new URLSearchParams({
+                product_id: row.getAttribute('product_id'),
+                affiliate_id: row.getAttribute('affiliate_id'),
+                date: row.getAttribute('date')
             })
         }
     }
@@ -123,6 +130,9 @@ function request_table(table_name=currentTable, page=currentPage){
     while (table_placeholder.hasChildNodes()){
         table_placeholder.removeChild(table_placeholder.firstChild)
     }
+    // Очищение промежуточных состояний таблицы
+    currentltDeletingRow = null
+    currentlyEditingRow = null
     removePOSTForm()
 
     // Если выбираем другую таблицу
@@ -250,6 +260,14 @@ function stopLineEditing(){
 
     controlGroup.appendChild(editButton)
     controlGroup.appendChild(remButton)
+
+    // removing edit lines
+    const editColumns = row.getElementsByTagName('td')
+    for (let i = 0; i < editColumns.length - 1; i++){
+        editColumns[i].removeChild(editColumns[i].firstElementChild)
+        editColumns[i].innerText = editColumns[i].getAttribute('old_text')
+        editColumns[i].removeAttribute('old_text')
+    }
 }
 
 function stopLineDeleting(){
@@ -274,7 +292,15 @@ function stopLineDeleting(){
     controlGroup.appendChild(remButton)
 }
 
-function startLineEditing(callerRow, buttonCol){
+async function startLineEditing(callerRow, buttonCol){
+    function _set_pk_line(column, input_f, pk_id){
+        column.setAttribute('old_text', column.innerText)
+        column.innerText = null
+        column.appendChild(input_f)
+        input_f.value = callerRow.getAttribute(pk_id)
+    }
+
+
     stopLineDeleting()
     stopLineEditing()
 
@@ -290,6 +316,60 @@ function startLineEditing(callerRow, buttonCol){
     
     buttonCol.appendChild(apr)
     buttonCol.appendChild(cancel)
+
+    // Add line editing
+    switch (currentTable) {
+        case 'sellings': {
+            await fetch(`${currentTable}/functions`)
+            .then(response => response.text())
+            .catch(error => {
+                console.log("Failed to fetch functions: ", error)
+            })
+            .then(html => {
+                const parser = new DOMParser()
+                const doc = parser.parseFromString(html, 'text/html')
+                return doc
+            })
+            .catch(error => {
+                console.log("Failed to parse page", error)
+            })
+            .then(doc => {
+                // Parsing input fields
+                const inputFields = [
+                    doc.getElementById('product_id'),
+                    doc.getElementById('affiliate_id'),
+                    doc.getElementById('goods_realised'),
+                    doc.getElementById('goods_realised_price'),
+                    doc.getElementById('goods_recieved'),
+                    doc.getElementById('goods_recieved_cost'),
+                    doc.getElementById('date')
+                ]
+                
+                // Changing names
+                inputFields.forEach((el) => {
+                    // console.log(el)
+                    el.setAttribute('id', 'edit_' + el.getAttribute('id'))
+                })
+
+                const columns = callerRow.getElementsByTagName('td')
+                
+                _set_pk_line(columns[0], inputFields[0], 'product_id')
+                _set_pk_line(columns[1], inputFields[1], 'affiliate_id')
+                _set_pk_line(columns[6], inputFields[6], 'date')
+                // 2.goods_realised
+                // 3.goods_realised_price
+                // 4.goods_recieves
+                // 5.goods_recieved_cost
+                for (let i = 2; i <= 5; i++){
+                    inputFields[i].value = columns[i].innerText
+                    columns[i].setAttribute('old_text', columns[i].innerText)
+                    columns[i].innerText = null
+                    columns[i].appendChild(inputFields[i])
+                }
+            })
+            break
+        }
+    }
 }
 
 function startLineDeleting(callerRow, buttonCol){
@@ -310,17 +390,52 @@ function startLineDeleting(callerRow, buttonCol){
     buttonCol.appendChild(cancel)
 }
 
-function deleteRow(){
-    switch(currentTable){
-        case 'sellings' : {
-            let product_id = null
-            break
-        }
+async function deleteRow(){
+    const row = currentltDeletingRow[0]
+    const params = new URLSearchParams(fetchRowID(row))
+
+    let response = await fetch(`${currentTable}/del-form?${params}`, {method: 'DELETE'})
+    
+    if (response.ok){
+        console.log(await response.text)
+        alert('Удалено')
     }
+    else{
+        alert('Ошибка удаления')
+        const errors = await response.json;
+        Object(errors).forEach((key) => {
+            fields[key].classList.add('is-invalid');
+        });
+        console.log(errors)
+    }
+    currentltDeletingRow = null
+    request_table()
 }
 
-function editRow(){
+async function editRow(){
+    const row = currentlyEditingRow[0]
+    // Получаем PK_ID для записи и сохраняем как часть запроса
+    const params = new URLSearchParams(fetchRowID(row))
+    const response = await fetch(`${currentTable}/edit-form?${params}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: fetchDocumentInput('edit_')
+    })
 
+    if (response.ok){
+        alert('Запись успешно обновлена!')
+        request_table()
+        console.log(await response.text)
+    }
+    else{
+        alert('Непредвиденная ошибка')
+        const error = await response.json;
+        console.log(error)
+    }
+    
+    stopLineEditing()
 }
 
 function request_form_modal(){
@@ -349,6 +464,9 @@ function request_form_modal(){
 }
 
 function removePOSTForm(){
+    stopLineDeleting()
+    stopLineEditing()
+
     if (!rowModalBack.hasAttribute('hidden')){
         rowModalBack.setAttribute('hidden', 'true')
         request_table()
@@ -356,10 +474,6 @@ function removePOSTForm(){
     while (addRowModalWindow.hasChildNodes()){
         addRowModalWindow.removeChild(addRowModalWindow.firstChild)
     }
-}
-
-function changeSortState(){
-
 }
 
 document.getElementById('table-orders').addEventListener('click', () => request_table("orders"))
