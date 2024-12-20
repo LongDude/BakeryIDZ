@@ -4,8 +4,10 @@ const rowModalBack = document.getElementById('row-modal-back')
 
 var currentTable = "";
 var currentPage = 1
+var currentPageLimit = 20
 const sortingOrderEnum = [null, 'asc', 'desc']
 var sortingOrderMarkers = {};
+var filterMarkers = {};
 
 const sortSVGtemplates = [
     document.getElementById('icons').content.childNodes[1],
@@ -20,7 +22,6 @@ const iconDelete = document.getElementById('icons').content.childNodes[13]
 
 rowModalBack.addEventListener('click', removePOSTForm)
 addRowModalWindow.addEventListener('click', (event) => event.stopPropagation())
-
 
 addRowModalWindow.addEventListener('submit', async (e) => {
     e.preventDefault()
@@ -40,14 +41,6 @@ addRowModalWindow.addEventListener('submit', async (e) => {
                 goods_recieved_cost:    document.getElementById('goods_recieved_cost'),
                 date:                   document.getElementById('date')
             }
-            
-            response = await fetch(`/${currentTable}/add-form`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: fetchDocumentInput()
-            })
             break
         }
         case 'orders': {
@@ -58,8 +51,17 @@ addRowModalWindow.addEventListener('submit', async (e) => {
         }
         case _: {
             console.log('No table selected')
+            return
             break
         }
+
+        response = await fetch(`/${currentTable}/add-form`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: fetchDocumentInput()
+        })
     }
 
     if (response.ok){
@@ -112,6 +114,22 @@ function fetchRowID(row){
     }
 }
 
+function parseInputsTemplate(doc, table){
+    switch(table){
+        case 'sellings': 
+            return [
+                doc.getElementById('product_id'),
+                doc.getElementById('affiliate_id'),
+                doc.getElementById('goods_realised'),
+                doc.getElementById('goods_realised_price'),
+                doc.getElementById('goods_recieved'),
+                doc.getElementById('goods_recieved_cost'),
+                doc.getElementById('date')
+            ]
+        
+    }
+}
+
 function changeSortingMode(colName){
     console.log(colName)
 
@@ -126,9 +144,24 @@ function changeSortingMode(colName){
     request_table(currentTable)
 }
 
-function request_table(table_name=currentTable, page=currentPage){
-    while (table_placeholder.hasChildNodes()){
-        table_placeholder.removeChild(table_placeholder.firstChild)
+async function request_table(table_name=currentTable, page=currentPage){
+    if (table_placeholder.children.length > 0){
+        // Cперва сохраним фильтры
+        var filterMarkers = {}
+        const filterRow = document.getElementById('filter_row').children
+        console.log(filterRow)
+        for(let i = 0; i < filterRow.length - 1; i++){
+            // Для каждого имеющегося фильтра сохраним текущее состояние
+            if (filterRow[i].firstChild.value != '' && (filterRow[i].firstChild.tagName != 'SELECT' || filterRow[i].firstChild.value != 0)){
+                filterMarkers[filterRow[i].firstChild.getAttribute('id')] = filterRow[i].firstChild.value
+            } 
+        }
+        console.log(filterMarkers)
+    }
+    
+    while (table_placeholder.children.length > 0){
+        // Удаляем таблицу если существует
+        table_placeholder.removeChild(table_placeholder.firstElementChild)
     }
     // Очищение промежуточных состояний таблицы
     currentltDeletingRow = null
@@ -155,12 +188,21 @@ function request_table(table_name=currentTable, page=currentPage){
         }
     }
 
+    // Filtering
+    let localFilters = []
+    for (var key in filterMarkers){
+        localFilters.push(key)
+        localFilters.push(filterMarkers[key])
+    }
+
     const params = new URLSearchParams({
         'page': page,
-        'orderBy': sortOrders.join(',')
+        'limit': currentPageLimit,
+        'orderBy': sortOrders.join(','),
+        'filterBy': localFilters.join(',')
     })
 
-    fetch(`${table_name}?${params}`)
+    await fetch(`${table_name}?${params}`)
     .then(response => response.text())
     .catch(error => {
         console.error('Failed to fetch page: ', error)
@@ -174,7 +216,7 @@ function request_table(table_name=currentTable, page=currentPage){
     .catch(error => {
         console.error('Failed parsing page: ', error)
     })
-    .then(doc => {
+    .then(async doc =>  {
         const panel = doc.getElementById('table-control')        
         const table = doc.getElementById('data-table-container')
         table_placeholder.appendChild(table)
@@ -191,6 +233,7 @@ function request_table(table_name=currentTable, page=currentPage){
         console.log(colHeaders)
         // Выбрали другую таблицу
         if (currentTable != table_name){
+            filterMarkers = {}
             sortingOrderMarkers = {}   
             for (let i = 0; i < colHeaders.length - 1; i++){
                 const text = colHeaders[i].firstChild.data
@@ -212,7 +255,6 @@ function request_table(table_name=currentTable, page=currentPage){
                 let newicon = sortSVGtemplates[order].cloneNode(true)
                 newicon.addEventListener('click', () => changeSortingMode(text))
                 parent.appendChild(newicon)
-                
             }
         }
 
@@ -226,12 +268,55 @@ function request_table(table_name=currentTable, page=currentPage){
             btn.addEventListener('click', () => startLineDeleting(row, editGroups[i] ))
         } 
 
-        const add_row_button = doc.getElementById("add-row")
-        add_row_button.addEventListener('click', request_form_modal)
+        const templ_doc = await fetch(`${table_name}/functions`)
+        .then(response => response.text())
+        .catch(error => {
+            console.log("Failed to fetch functions: ", error)
+        })
+        .then(html => {
+            const parser = new DOMParser()
+            const doc = parser.parseFromString(html, 'text/html')
+            return doc
+        })
+        .catch(error => {
+            console.log("Failed to parse page", error)
+        })
 
-        table_placeholder.appendChild(panel)
+        const filterRow = document.getElementById('filter_row').children
+        const inputFields = parseInputsTemplate(templ_doc, table_name)
+
+        console.log(filterRow)
+
+        for(let i = 0; i < filterRow.length - 1; i++){
+            filterRow[i].appendChild(inputFields[i])
+            inputFields[i].setAttribute('id', 'filter_' + inputFields[i].getAttribute('id'))
+            
+            if (inputFields[i].tagName === 'SELECT'){
+                var opt = document.createElement('option')
+                opt.value = 0
+                opt.innerHTML = 'None'
+                inputFields[i].prepend(opt)
+                inputFields[i].value = 0
+            }
+            else{
+                inputFields[i].value = null
+            }
+        }
+        if (currentTable == table_name) {
+            // Та же страница - значит сохранились фильтры
+            for (let filter_id in filterMarkers){
+                // Итерация по принятым значениям (не null)
+                document.getElementById(filter_id).value = filterMarkers[filter_id]
+            }
+        }
 
         currentTable = table_name
+
+        const add_row_button = doc.getElementById("add-row")
+        document.getElementById('refresh').addEventListener('click', () => request_table(currentTable))
+        add_row_button.addEventListener('click', request_form_modal)
+        table_placeholder.appendChild(panel)
+
     })
     .catch(error => {
         console.error('Failed appending page: ', error)
@@ -317,56 +402,47 @@ async function startLineEditing(callerRow, buttonCol){
     buttonCol.appendChild(apr)
     buttonCol.appendChild(cancel)
 
+    const doc = await fetch(`${currentTable}/functions`)
+    .then(response => response.text())
+    .catch(error => {
+        console.log("Failed to fetch functions: ", error)
+    })
+    .then(html => {
+        const parser = new DOMParser()
+        const doc = parser.parseFromString(html, 'text/html')
+        return doc
+    })
+    .catch(error => {
+        console.log("Failed to parse page", error)
+    })
+
     // Add line editing
     switch (currentTable) {
         case 'sellings': {
-            await fetch(`${currentTable}/functions`)
-            .then(response => response.text())
-            .catch(error => {
-                console.log("Failed to fetch functions: ", error)
+            // Parsing input fields
+            const inputFields = parseInputsTemplate(doc, currentTable)
+            
+            // Changing names
+            inputFields.forEach((el) => {
+                // console.log(el)
+                el.setAttribute('id', 'edit_' + el.getAttribute('id'))
             })
-            .then(html => {
-                const parser = new DOMParser()
-                const doc = parser.parseFromString(html, 'text/html')
-                return doc
-            })
-            .catch(error => {
-                console.log("Failed to parse page", error)
-            })
-            .then(doc => {
-                // Parsing input fields
-                const inputFields = [
-                    doc.getElementById('product_id'),
-                    doc.getElementById('affiliate_id'),
-                    doc.getElementById('goods_realised'),
-                    doc.getElementById('goods_realised_price'),
-                    doc.getElementById('goods_recieved'),
-                    doc.getElementById('goods_recieved_cost'),
-                    doc.getElementById('date')
-                ]
-                
-                // Changing names
-                inputFields.forEach((el) => {
-                    // console.log(el)
-                    el.setAttribute('id', 'edit_' + el.getAttribute('id'))
-                })
 
-                const columns = callerRow.getElementsByTagName('td')
-                
-                _set_pk_line(columns[0], inputFields[0], 'product_id')
-                _set_pk_line(columns[1], inputFields[1], 'affiliate_id')
-                _set_pk_line(columns[6], inputFields[6], 'date')
-                // 2.goods_realised
-                // 3.goods_realised_price
-                // 4.goods_recieves
-                // 5.goods_recieved_cost
-                for (let i = 2; i <= 5; i++){
-                    inputFields[i].value = columns[i].innerText
-                    columns[i].setAttribute('old_text', columns[i].innerText)
-                    columns[i].innerText = null
-                    columns[i].appendChild(inputFields[i])
-                }
-            })
+            const columns = callerRow.getElementsByTagName('td')
+            
+            _set_pk_line(columns[0], inputFields[0], 'product_id')
+            _set_pk_line(columns[1], inputFields[1], 'affiliate_id')
+            _set_pk_line(columns[6], inputFields[6], 'date')
+            // 2.goods_realised
+            // 3.goods_realised_price
+            // 4.goods_recieves
+            // 5.goods_recieved_cost
+            for (let i = 2; i <= 5; i++){
+                inputFields[i].value = columns[i].innerText
+                columns[i].setAttribute('old_text', columns[i].innerText)
+                columns[i].innerText = null
+                columns[i].appendChild(inputFields[i])
+            }
             break
         }
     }
@@ -479,3 +555,15 @@ function removePOSTForm(){
 document.getElementById('table-orders').addEventListener('click', () => request_table("orders"))
 document.getElementById('table-sellings').addEventListener('click', () => request_table("sellings"))
 document.getElementById('table-assortiment').addEventListener('click', () => request_table("assortiment"))
+
+document.getElementById('page-limit').addEventListener('click', () => {
+    const pagelimitbutton = document.getElementById('page-limit')
+
+    const limValue = parseInt(pagelimitbutton.innerHTML) + 5
+    if (limValue > 50) {
+        limValue = 15
+    }
+    currentPageLimit = limValue
+    pagelimitbutton.innerHTML = limValue
+    request_table()
+})

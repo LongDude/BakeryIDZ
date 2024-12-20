@@ -12,6 +12,12 @@
                     {% endfor %}    
                     <th scope="col">Действия</th>
                 </tr>
+                <tr id="filter_row">
+                    {% for name in data[0].keys() %}
+                    <td></td>
+                    {% endfor %}
+                    <td><button id="refresh">Обновить</button></td>    
+                </tr>
             </thead>
             <tbody>
                 {% for i in range(data | length) %}

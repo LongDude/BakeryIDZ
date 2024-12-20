@@ -38,30 +38,12 @@ def query_db(query, args=(), one=False):
         pool.putconn(conn)
     return (r[0] if r else None) if one else r
 
-def procedure_db(query, args=()):
-    try:
-        conn = pool.getconn()
-        cur = conn.cursor()
-        
-        cur.execute(query, args)
-        conn.commit()
-        r = cur.fetchone()
-        app.logger.debug(r)
-    except Exception as e:
-        app.logger.debug(query)
-        app.logger.debug(args)
-        app.logger.debug(e)
-    finally:
-        pool.putconn(conn)
-        
-    return r
-
 # -----------------------
 # Дъявольские технологии™
 # Надо было делать ORM
 # -----------------------
 def append_filter(query: str, q_mask, q_filter = ()):
-    if q_filter is None or len(q_filter) == 0:
+    if q_filter is None or len(q_filter) < 2:
         return query
     p = 0
 
@@ -73,22 +55,13 @@ def append_filter(query: str, q_mask, q_filter = ()):
         except KeyError:
             app.logger.debug(q_filter[p], q_mask)
 
-        ftype = q_filter[p + 1]
-        match ftype:
-            case 'H':
-                val1 = q_filter[p + 2]
-                if not val1.isnumeric():
-                    # Для строк экранируем кавычки
-                    val1 = f'\'{val1}\'' 
-                query += f" {fkey} = {val1}"
-                break
-            case 'S':
-                val1 = q_filter[p + 2]
-                if not val1.isnumeric():
-                    # Для строк экранируем кавычки
-                    val1 = f'\'{val1}\'' 
-                query += f" {fkey} ~* {val1}"
-                break
+        val1 = q_filter[p + 1]
+        if not val1.isnumeric():
+            # Для строк экранируем кавычки
+            val1 = f'\'{val1}\'' 
+        query += f" {fkey} = {val1}"
+        p += 2
+
         if p < len(q_filter):
             query += " AND "
 
@@ -128,7 +101,7 @@ def complex_table_request(query, query_codes, args,  req_count=False):
 
     # Pagination
     arg_page = args.get('page', type=int, default=1)
-    arg_pagelimit = args.get('limit', type=int, default=20)
+    arg_pagelimit = args.get('limit', type=int, default=RECORDS_PER_PAGE)
     query = append_pagination(query, arg_page, arg_pagelimit)
 
     return query_db(query)
