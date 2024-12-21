@@ -43,10 +43,25 @@ addRowModalWindow.addEventListener('submit', async (e) => {
             }
             break
         }
-        case 'orders': {
+        case 'assortiment': {
+            fields = {
+                product_id:     document.getElementById('product_id'),
+                affiliate_id:   document.getElementById('affiliate_id'),
+                stock_quantity: document.getElementById('stock_quantity'),
+                stock_price:    document.getElementById('stock_price'),
+                stock_delivery: document.getElementById('stock_delivery')  
+            }
             break
         }
-        case 'assortiment': {
+        case 'orders': {
+            fields = {
+                partner_id:     document.getElementById('partner_id'),
+                product_id:     document.getElementById('product_id'),
+                date:           document.getElementById('date'),
+                order_price:    document.getElementById('order_price'),
+                order_quantity: document.getElementById('order_quantity'),
+                order_status:   document.getElementById('order_status')
+            }
             break
         }
         case _: {
@@ -54,15 +69,15 @@ addRowModalWindow.addEventListener('submit', async (e) => {
             return
             break
         }
-
-        response = await fetch(`/${currentTable}/add-form`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: fetchDocumentInput()
-        })
     }
+        
+    response = await fetch(`/${currentTable}/add-form`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: fetchDocumentInput()
+    })
 
     if (response.ok){
         console.log( await response.text)
@@ -86,7 +101,6 @@ function fetchDocumentInput(suffix=''){
     switch (currentTable){
         case 'sellings': {
             return JSON.stringify({
-                // csrf_token:             document.getElementById('csrf_token').value,
                 product_id:             document.getElementById(`${suffix}product_id`).value,
                 affiliate_id:           document.getElementById(`${suffix}affiliate_id`).value,
                 goods_realised:         document.getElementById(`${suffix}goods_realised`).value,
@@ -96,13 +110,31 @@ function fetchDocumentInput(suffix=''){
                 date:                   document.getElementById(`${suffix}date`).value,
             })
         }
+        case 'assortiment': {
+            return JSON.stringify({
+                product_id:     document.getElementById(`${suffix}product_id`).value,
+                affiliate_id:   document.getElementById(`${suffix}affiliate_id`).value,
+                stock_quantity: document.getElementById(`${suffix}stock_quantity`).value,
+                stock_price:    document.getElementById(`${suffix}stock_price`).value,
+                stock_delivery: document.getElementById(`${suffix}stock_delivery`).value
+            })
+        }
+        case 'orders': {
+            return JSON.stringify({
+                partner_id:     document.getElementById(`${suffix}partner_id`).value,
+                product_id:     document.getElementById(`${suffix}product_id`).value,
+                date:           document.getElementById(`${suffix}date`).value,
+                order_price:    document.getElementById(`${suffix}order_price`).value,
+                order_quantity: document.getElementById(`${suffix}order_quantity`).value,
+                order_status:   document.getElementById(`${suffix}order_status`).value
+            })
+        }
     }
 }
 
 
 function fetchRowID(row){
     //  Получаем ключи PK записи для указанной строки с учётом контекста таблицы
-
     switch (currentTable) {
         case 'sellings': {
             return new URLSearchParams({
@@ -111,12 +143,25 @@ function fetchRowID(row){
                 date: row.getAttribute('date')
             })
         }
+        case 'assortiment': {
+            return new URLSearchParams({
+                product_id:     row.getAttribute('product_id'),
+                affiliate_id:   row.getAttribute('affiliate_id')
+            })   
+        }
+        case 'orders': {
+            return new URLSearchParams({
+                partner_id: row.getAttribute('partner_id'),
+                product_id: row.getAttribute('product_id'),
+                date:       row.getAttribute('date')
+            })   
+        }
     }
 }
 
 function parseInputsTemplate(doc, table){
     switch(table){
-        case 'sellings': 
+        case 'sellings':{ 
             return [
                 doc.getElementById('product_id'),
                 doc.getElementById('affiliate_id'),
@@ -126,7 +171,26 @@ function parseInputsTemplate(doc, table){
                 doc.getElementById('goods_recieved_cost'),
                 doc.getElementById('date')
             ]
-        
+        }
+        case 'assortiment':{
+            return [
+                doc.getElementById('affiliate_id'),
+                doc.getElementById('product_id'),
+                doc.getElementById('stock_quantity'),
+                doc.getElementById('stock_price'),
+                doc.getElementById('stock_delivery')
+            ]
+        }
+        case 'orders':{
+            return [
+                doc.getElementById('partner_id'),
+                doc.getElementById('product_id'),
+                doc.getElementById('date'),
+                doc.getElementById('order_price'),
+                doc.getElementById('order_quantity'),
+                doc.getElementById('order_status')
+            ]
+        }
     }
 }
 
@@ -187,8 +251,22 @@ function collectTableParams(){
 }
 
 async function request_table(table_name=currentTable, page=currentPage){
-    saveFilterMarkers()
     
+    // Если выбираем другую таблицу
+    if (currentTable != table_name){
+        currentPage = 1
+        page = 1
+        sortingOrderMarkers = {}
+        filterMarkers = {}
+    }
+    else{
+        currentPage = page
+        saveFilterMarkers()
+    }
+
+    console.log('LOADING: Filter marks')
+    console.log(filterMarkers)
+
     while (table_placeholder.children.length > 0){
         // Удаляем таблицу если существует
         table_placeholder.removeChild(table_placeholder.firstElementChild)
@@ -198,14 +276,7 @@ async function request_table(table_name=currentTable, page=currentPage){
     currentlyEditingRow = null
     removePOSTForm()
 
-    // Если выбираем другую таблицу
-    if (currentTable != table_name){
-        currentPage = 1
-        page = 1
-    }
-    else{
-        currentPage = page
-    }
+    
 
     const params = collectTableParams()
 
@@ -292,7 +363,9 @@ async function request_table(table_name=currentTable, page=currentPage){
         const filterRow = document.getElementById('filter_row').children
         const inputFields = parseInputsTemplate(templ_doc, table_name)
 
+        console.log('LOADING: Adding filters')
         console.log(filterRow)
+        console.log(inputFields)
 
         for(let i = 0; i < filterRow.length - 1; i++){
             filterRow[i].appendChild(inputFields[i])
@@ -439,20 +512,20 @@ async function startLineEditing(callerRow, buttonCol){
         console.log("Failed to parse page", error)
     })
 
+    // Parsing input fields
+    const inputFields = parseInputsTemplate(doc, currentTable)
+    const columns = callerRow.getElementsByTagName('td')
+    
+    // Changing names
+    inputFields.forEach((el) => {
+        // console.log(el)
+        el.setAttribute('id', 'edit_' + el.getAttribute('id'))
+    })
+
+
     // Add line editing
     switch (currentTable) {
-        case 'sellings': {
-            // Parsing input fields
-            const inputFields = parseInputsTemplate(doc, currentTable)
-            
-            // Changing names
-            inputFields.forEach((el) => {
-                // console.log(el)
-                el.setAttribute('id', 'edit_' + el.getAttribute('id'))
-            })
-
-            const columns = callerRow.getElementsByTagName('td')
-            
+        case 'sellings': {            
             _set_pk_line(columns[0], inputFields[0], 'product_id')
             _set_pk_line(columns[1], inputFields[1], 'affiliate_id')
             _set_pk_line(columns[6], inputFields[6], 'date')
@@ -460,7 +533,36 @@ async function startLineEditing(callerRow, buttonCol){
             // 3.goods_realised_price
             // 4.goods_recieves
             // 5.goods_recieved_cost
-            for (let i = 2; i <= 5; i++){
+            for (let i = 2; i <= 5; i++){ // non-pk cycle
+                inputFields[i].value = columns[i].innerText
+                columns[i].setAttribute('old_text', columns[i].innerText)
+                columns[i].innerText = null
+                columns[i].appendChild(inputFields[i])
+            }
+            break
+        }
+        case 'assortiment': {
+            _set_pk_line(columns[0], inputFields[0], 'affiliate_id')
+            _set_pk_line(columns[1], inputFields[1], 'product_id')
+            // 2 stock_quantity
+            // 3 stock_price
+            // 4 stock_delivery
+            for (let i = 2; i <= 4; i++){ // non-pk cycle
+                inputFields[i].value = columns[i].innerText
+                columns[i].setAttribute('old_text', columns[i].innerText)
+                columns[i].innerText = null
+                columns[i].appendChild(inputFields[i])
+            }
+            break
+        }
+        case 'orders': {
+            _set_pk_line(columns[0], inputFields[0], 'partner_id')
+            _set_pk_line(columns[1], inputFields[1], 'product_id')
+            _set_pk_line(columns[2], inputFields[2], 'date')
+            // 3 order_price
+            // 4 order_quantity
+            // 5 order_status
+            for (let i = 3; i <= 5; i++){ // non-pk cycle
                 inputFields[i].value = columns[i].innerText
                 columns[i].setAttribute('old_text', columns[i].innerText)
                 columns[i].innerText = null
@@ -584,9 +686,11 @@ document.getElementById('page-limit').addEventListener('click', () => {
 
     const limValue = parseInt(pagelimitbutton.innerHTML) + 5
     if (limValue > 50) {
-        limValue = 15
+        currentPageLimit = 15
     }
-    currentPageLimit = limValue
-    pagelimitbutton.innerHTML = limValue
+    else{
+        currentPageLimit = limValue
+    }
+    pagelimitbutton.innerHTML = currentPageLimit
     request_table()
 })

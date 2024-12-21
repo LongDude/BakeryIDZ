@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<form id="form-add" method="post" action="orders/add-form">
+    {{ form.hidden_tag() }}
+    <div id="form-fields">
+        Партнер
+        {{ form.partner_id() }}
+        Имя продукта
+        {{ form.product_id() }}
+        Дата заказа
+        {{ form.date() }}
+        Стоимость заказа
+        {{ form.order_price() }}
+        Размер заказа
+        {{ form.order_quantity() }}
+        Статус
+        {{ form.order_status() }}
+    </div>
+    <div class="form-controls">
+        {{ form.submitForm() }}
+    </div>
+</form>

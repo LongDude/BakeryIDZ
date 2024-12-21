@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<form id="form-add" method="post" action="assortiment/add-form">
+    {{ form.hidden_tag() }}
+    <div id="form-fields">
+        Имя продукта
+        {{ form.product_id() }}
+        Магазин        
+        {{ form.affiliate_id() }}
+        Кол-во на складе
+        {{ form.stock_quantity() }}
+        Общая стоимость
+        {{ form.stock_price() }}
+        Дневная поставка
+        {{ form.stock_delivery() }}
+    </div>
+    <div class="form-controls">
+        {{ form.submitForm() }}
+    </div>
+</form>

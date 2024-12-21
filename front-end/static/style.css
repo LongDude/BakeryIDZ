@@ -78,20 +78,21 @@ main aside button:active {
     position: relative;
     width: 100%;
     background-color: wheat;
+    height: 100vh;
 }
 
 
 #table_placeholder {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
+    display: grid;
+    grid-template-rows: calc(100vh - 75px) 75px;
+    overflow: hidden;
     height: 100%;
 }
 
 #data-table-container {
     text-wrap: nowrap;
-    overflow: scroll;
-    height: 90vh;
+    overflow-x: scroll;
+    overflow-y: hidden;
 }
 
 #data-table-container::-webkit-scrollbar {
@@ -178,9 +179,14 @@ main aside button:active {
     flex-direction: row;
     justify-content: space-between;
 }
-thead input {
 
+thead input {
     display: block;
+}
+
+tbody {
+    height: auto;
+    overflow-y: scroll !important;
 }
 
 td {
